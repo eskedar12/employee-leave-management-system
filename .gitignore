@@ -1,6 +1,9 @@
-﻿node_modules/
+﻿cd employee-leave-management-system
+@"
+node_modules/
 .env
 .DS_Store
 dist/
 build/
 *.log
+"@ | Out-File -FilePath .gitignore -Encoding utf8
