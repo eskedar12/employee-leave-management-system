@@ -1,0 +1,106 @@
+const { LeaveRequest, User } = require('../models');
+const AppError = require('../utils/AppError');
+const { LEAVE_STATUS } = require('../utils/constants');
+
+const employeeAttributes = ['id', 'fullName', 'username'];
+
+const createLeaveRequest = async (userId, payload) => {
+  const { leaveType, startDate, endDate, reason } = payload;
+
+  if (new Date(endDate) < new Date(startDate)) {
+    throw new AppError('End date cannot be before start date.', 422);
+  }
+
+  return LeaveRequest.create({
+    userId,
+    leaveType,
+    startDate,
+    endDate,
+    reason,
+    status: LEAVE_STATUS.PENDING,
+  });
+};
+
+const getMyLeaveRequests = async (userId) => {
+  return LeaveRequest.findAll({
+    where: { userId },
+    order: [['createdAt', 'DESC']],
+  });
+};
+
+const getAllLeaveRequests = async ({ status, page = 1, limit = 10 }) => {
+  const where = {};
+  if (status) where.status = status;
+
+  const offset = (page - 1) * limit;
+
+  const { rows, count } = await LeaveRequest.findAndCountAll({
+    where,
+    include: [{ model: User, as: 'employee', attributes: employeeAttributes }],
+    order: [['createdAt', 'DESC']],
+    limit: Number(limit),
+    offset: Number(offset),
+  });
+
+  return {
+    requests: rows,
+    pagination: {
+      total: count,
+      page: Number(page),
+      limit: Number(limit),
+      totalPages: Math.ceil(count / limit) || 1,
+    },
+  };
+};
+
+const updateLeaveStatus = async ({ id, status, reviewerComment, reviewerId }) => {
+  const request = await LeaveRequest.findByPk(id);
+  if (!request) {
+    throw new AppError('Leave request not found.', 404);
+  }
+
+  if (request.status !== LEAVE_STATUS.PENDING) {
+    throw new AppError(`This request has already been ${request.status.toLowerCase()}.`, 400);
+  }
+
+  request.status = status;
+  request.reviewerComment = reviewerComment || null;
+  request.reviewedBy = reviewerId;
+  request.reviewedAt = new Date();
+  await request.save();
+
+  return request;
+};
+
+const getSummary = async () => {
+  const [pending, approved, rejected, total] = await Promise.all([
+    LeaveRequest.count({ where: { status: LEAVE_STATUS.PENDING } }),
+    LeaveRequest.count({ where: { status: LEAVE_STATUS.APPROVED } }),
+    LeaveRequest.count({ where: { status: LEAVE_STATUS.REJECTED } }),
+    LeaveRequest.count(),
+  ]);
+
+  const totalEmployees = await User.count();
+
+  return { pending, approved, rejected, total, totalEmployees };
+};
+
+const getEmployeeSummary = async (userId) => {
+  const [pending, approved, rejected, total] = await Promise.all([
+    LeaveRequest.count({ where: { userId, status: LEAVE_STATUS.PENDING } }),
+    LeaveRequest.count({ where: { userId, status: LEAVE_STATUS.APPROVED } }),
+    LeaveRequest.count({ where: { userId, status: LEAVE_STATUS.REJECTED } }),
+    LeaveRequest.count({ where: { userId } }),
+  ]);
+
+  return { pending, approved, rejected, total };
+};
+
+module.exports = {
+  createLeaveRequest,
+  getMyLeaveRequests,
+  getAllLeaveRequests,
+  updateLeaveStatus,
+  getSummary,
+  getEmployeeSummary,
+};
